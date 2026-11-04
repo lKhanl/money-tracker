@@ -4,3 +4,9 @@ build/
 *.iml
 local.properties
 .DS_Store
+
+# iOS
+iosApp/build/
+xcuserdata/
+*.xcworkspace/xcuserdata/
+.kotlin/

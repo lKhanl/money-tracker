@@ -1,21 +1,22 @@
 plugins {
-    kotlin("jvm")
-}
-
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    testImplementation(kotlin("test"))
-    testImplementation("org.junit.jupiter:junit-jupiter:5.11.3")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    kotlin("multiplatform")
 }
 
 kotlin {
     jvmToolchain(21)
-}
 
-tasks.test {
-    useJUnitPlatform()
+    // Android tarafı JVM çıktısını kullanır; iOS için yerel derlenir.
+    jvm()
+    iosArm64()
+    iosSimulatorArm64()
+
+    sourceSets {
+        commonMain.dependencies {
+            api("org.jetbrains.kotlinx:kotlinx-datetime:0.8.0")
+            implementation("org.kotlincrypto.hash:sha2:0.8.0")
+        }
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+        }
+    }
 }

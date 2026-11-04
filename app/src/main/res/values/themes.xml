@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Pencere zemini açılış ekranıyla aynı; ilk karede beyaz parlama olmaz. -->
+    <style name="Theme.MoneyTracker" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/splash_background</item>
+    </style>
+</resources>

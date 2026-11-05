@@ -33,6 +33,9 @@ interface TransactionDao {
     )
     suspend fun deleteStatementRows(accountId: String, from: LocalDateTime, to: LocalDateTime)
 
+    @Query("DELETE FROM transactions WHERE accountId = :accountId")
+    suspend fun deleteByAccount(accountId: String)
+
     @Upsert
     suspend fun upsert(transactions: List<TransactionEntity>)
 }

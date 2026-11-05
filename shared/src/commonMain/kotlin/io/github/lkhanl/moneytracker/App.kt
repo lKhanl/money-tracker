@@ -90,6 +90,8 @@ fun App(graph: AppGraph, onDarkThemeChanged: (Boolean) -> Unit = {}) {
                     onSelectMonth = vm::selectMonth,
                     importState = importState,
                     onImportStatement = vm::importStatement,
+                    onAddAccount = vm::addAccount,
+                    onDeleteAccount = vm::deleteAccount,
                     onDismissImportResult = vm::dismissImportResult,
                 )
             }

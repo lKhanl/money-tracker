@@ -14,6 +14,7 @@ import kotlinx.datetime.plus
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
@@ -26,15 +27,31 @@ class TransactionRepository(
     private val transferWindow: Duration = 2.minutes,
 ) {
     private val dao = db.transactions()
+    private val accountDao = db.accounts()
     private val matcher = TransferMatcher(transferWindow)
 
     fun observeAll(): Flow<List<Transaction>> = dao.observeAll().map { list -> list.map { it.toDomain() } }
+
+    /** Kullanıcının eklediği hesapların kimlikleri, eklenme sırasıyla. */
+    fun observeAccountIds(): Flow<List<String>> = accountDao.observeIds()
+
+    /** Hesabı ekler; zaten ekliyse bir şey yapmaz. */
+    suspend fun addAccount(accountId: String) {
+        accountDao.insert(AccountEntity(accountId, Clock.System.now().toEpochMilliseconds()))
+    }
+
+    /** Hesabı ve ona ait tüm işlemleri siler. */
+    suspend fun deleteAccount(accountId: String) = inTransaction {
+        dao.deleteByAccount(accountId)
+        accountDao.delete(accountId)
+    }
 
     /**
      * İşlemi kaydeder, ardından yakın zamandaki işlemlerle iç transfer eşleştirmesi yapar.
      * Eşleşen çiftin türü ve kategorisi güncellenir.
      */
     suspend fun add(transaction: Transaction) = inTransaction {
+        addAccount(transaction.accountId)
         if (dao.insert(categorizer.categorize(transaction).toEntity()) == -1L) return@inTransaction
 
         val nearby = dao.between(
@@ -56,6 +73,8 @@ class TransactionRepository(
         var added = 0
         var updated = 0
         for ((accountId, ts) in transactions.groupBy { it.accountId }) {
+            // Ekstresi yüklenen hesap henüz eklenmemişse eklenir.
+            addAccount(accountId)
             val from = ts.minOf { it.occurredAt }.date.atStartOfDay()
             val to = ts.maxOf { it.occurredAt }.date.plus(1, DateTimeUnit.DAY).atStartOfDay()
             val previous = dao.statementIds(accountId, from, to)

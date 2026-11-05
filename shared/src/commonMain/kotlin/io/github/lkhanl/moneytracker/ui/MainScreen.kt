@@ -49,6 +49,8 @@ fun MainScreen(
     onSelectMonth: (YearMonth) -> Unit,
     importState: ImportState,
     onImportStatement: (ByteArray) -> Unit,
+    onAddAccount: (String) -> Unit,
+    onDeleteAccount: (String) -> Unit,
     onDismissImportResult: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
@@ -99,6 +101,8 @@ fun MainScreen(
                 onShowSupportedBanks = { tab = Tab.SETTINGS },
                 importState = importState,
                 onImportStatement = onImportStatement,
+                onAddAccount = onAddAccount,
+                onDeleteAccount = onDeleteAccount,
                 onDismissImportResult = onDismissImportResult,
                 padding = padding,
             )

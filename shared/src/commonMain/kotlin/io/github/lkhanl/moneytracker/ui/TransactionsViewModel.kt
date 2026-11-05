@@ -2,7 +2,6 @@ package io.github.lkhanl.moneytracker.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.github.lkhanl.moneytracker.core.BankTemplates
 import io.github.lkhanl.moneytracker.core.MonthlySummary
 import io.github.lkhanl.moneytracker.core.Transaction
 import io.github.lkhanl.moneytracker.data.StatementImporter
@@ -35,6 +34,7 @@ data class TransactionsUiState(
     val summary: MonthlySummary,
     /** Yalnızca seçili aya ait işlemler, yeniden eskiye. */
     val transactions: List<Transaction>,
+    /** Kullanıcının eklediği hesaplar, eklenme sırasıyla. */
     val accounts: List<AccountSummary>,
     /** Gezilebilecek ilk ay: en eski işlemin ayı. */
     val earliestMonth: YearMonth,
@@ -54,7 +54,7 @@ sealed interface ImportState {
 }
 
 class TransactionsViewModel(
-    repository: TransactionRepository,
+    private val repository: TransactionRepository,
     private val importer: StatementImporter,
 ) : ViewModel() {
 
@@ -63,14 +63,18 @@ class TransactionsViewModel(
 
     private val selectedMonth = MutableStateFlow(currentMonth())
 
-    val state: StateFlow<TransactionsUiState?> = combine(repository.observeAll(), selectedMonth) { all, month ->
+    val state: StateFlow<TransactionsUiState?> = combine(
+        repository.observeAll(),
+        repository.observeAccountIds(),
+        selectedMonth,
+    ) { all, accountIds, month ->
         val current = currentMonth()
         // En eski işlemin ayından bu aya kadar gezilebilir.
         val earliest = all.minOfOrNull { it.occurredAt.date.yearMonth }?.coerceAtMost(current) ?: current
         TransactionsUiState(
             summary = MonthlySummary.of(month, all),
             transactions = all.filter { it.occurredAt.date.yearMonth == month },
-            accounts = accountsOf(month, all),
+            accounts = accountsOf(month, accountIds, all),
             earliestMonth = earliest,
             latestMonth = current,
             monthlySpent = all.map { it.occurredAt.date.yearMonth }.distinct()
@@ -94,6 +98,14 @@ class TransactionsViewModel(
         }
     }
 
+    fun addAccount(accountId: String) {
+        viewModelScope.launch { repository.addAccount(accountId) }
+    }
+
+    fun deleteAccount(accountId: String) {
+        viewModelScope.launch { repository.deleteAccount(accountId) }
+    }
+
     fun dismissImportResult() {
         _importState.value = ImportState.Idle
     }
@@ -114,11 +126,9 @@ class TransactionsViewModel(
         StatementImporter.Outcome.Empty -> ImportState.Done("İşlem bulunamadı", "Bu hesap cüzdanında hareket yok.")
     }
 
-    private fun accountsOf(month: YearMonth, all: List<Transaction>): List<AccountSummary> {
+    private fun accountsOf(month: YearMonth, accountIds: List<String>, all: List<Transaction>): List<AccountSummary> {
         val byAccount = all.groupBy { it.accountId }
-        // Henüz işlemi olmayan tanımlı hesaplar da listelensin.
-        val ids = (KNOWN_ACCOUNTS + byAccount.keys).distinct()
-        return ids.map { id ->
+        return accountIds.map { id ->
             val ts = byAccount[id].orEmpty()
             val inMonth = ts.filter { it.occurredAt.date.yearMonth == month }
             AccountSummary(
@@ -129,9 +139,5 @@ class TransactionsViewModel(
                 lastTransaction = inMonth.maxByOrNull { it.occurredAt },
             )
         }
-    }
-
-    private companion object {
-        val KNOWN_ACCOUNTS = listOf(BankTemplates.QNB, BankTemplates.GETIR_FINANS, BankTemplates.QNB_CREDIT_CARD)
     }
 }

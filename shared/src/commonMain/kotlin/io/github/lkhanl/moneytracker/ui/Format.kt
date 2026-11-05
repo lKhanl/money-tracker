@@ -94,9 +94,12 @@ val Kind.label: String
         Kind.INTERNAL_TRANSFER -> "Hesaplar arası"
     }
 
+/** Hesap ekleme ekranında sunulan hesap türleri. Şimdilik yalnızca ekstresi okunabilenler. */
+val SupportedAccountTypes = listOf(BankTemplates.GETIR_FINANS)
+
 fun accountLabel(accountId: String): String = when (accountId) {
     BankTemplates.QNB -> "QNB"
-    BankTemplates.GETIR_FINANS -> "Getir Finans"
+    BankTemplates.GETIR_FINANS -> "GetirFinans Vadesiz"
     BankTemplates.QNB_CREDIT_CARD -> "QNB Kredi Kartı"
     else -> accountId
 }

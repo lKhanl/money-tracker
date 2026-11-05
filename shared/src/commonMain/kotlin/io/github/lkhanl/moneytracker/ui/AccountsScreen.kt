@@ -31,7 +31,35 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetValue
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
+import io.github.lkhanl.moneytracker.resources.ic_delete
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.text.style.TextAlign
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,24 +89,59 @@ fun AccountsScreen(
     onShowSupportedBanks: () -> Unit,
     importState: ImportState,
     onImportStatement: (ByteArray) -> Unit,
+    onAddAccount: (String) -> Unit,
+    onDeleteAccount: (String) -> Unit,
     onDismissImportResult: () -> Unit,
     padding: PaddingValues,
 ) {
     val pickPdf = rememberPdfPicker(onImportStatement)
     ImportDialog(importState, onDismissImportResult)
+    var addingAccount by rememberSaveable { mutableStateOf(false) }
+    if (addingAccount) {
+        AddAccountSheet(
+            existing = state.accounts.mapTo(mutableSetOf()) { it.accountId },
+            onAdd = onAddAccount,
+            onDismiss = { addingAccount = false },
+        )
+    }
+    // Silme düğmesi açık olan kart; aynı anda yalnızca biri açık olur.
+    var openAccount by remember { mutableStateOf<String?>(null) }
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding)
+            // Boş bir yere (ya da kartın kendisine) dokununca açık kart kapanır. Final aşamada bakılır;
+            // böylece silme düğmesi gibi dokunuşu işleyen öğeler önce davranır ve kapatma tetiklenmez.
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
+                    val up = waitForUpOrCancellation(PointerEventPass.Final)
+                    if (up != null && !up.isConsumed) openAccount = null
+                }
+            },
         contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + NavBarOverhang),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item { MonthSelector(state, onSelectMonth) }
-        item { Header(onImportPdf = pickPdf, onShowSupportedBanks) }
-        items(state.accounts, key = { it.accountId }) { AccountCard(it) }
+        item { Header(onAddAccount = { addingAccount = true }, onImportPdf = pickPdf, onShowSupportedBanks) }
+        if (state.accounts.isEmpty()) {
+            item { EmptyAccounts() }
+        }
+        items(state.accounts, key = { it.accountId }) { account ->
+            SwipeToDeleteAccount(
+                account = account,
+                isOpen = openAccount == account.accountId,
+                onOpenChange = { open ->
+                    openAccount = if (open) account.accountId else openAccount.takeIf { it != account.accountId }
+                },
+                onDelete = onDeleteAccount,
+            )
+        }
     }
 }
 
 @Composable
-private fun Header(onImportPdf: () -> Unit, onShowSupportedBanks: () -> Unit) {
+private fun Header(onAddAccount: () -> Unit, onImportPdf: () -> Unit, onShowSupportedBanks: () -> Unit) {
     val extra = AppTheme.extra
     Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -89,7 +152,7 @@ private fun Header(onImportPdf: () -> Unit, onShowSupportedBanks: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        // PDF ekstreden işlem içe aktarma ya da desteklenen bankaların listesi.
+        // Hesap ekleme, PDF ekstreden işlem içe aktarma ya da desteklenen bankaların listesi.
         var menuOpen by remember { mutableStateOf(false) }
         Box {
             Box(
@@ -104,6 +167,13 @@ private fun Header(onImportPdf: () -> Unit, onShowSupportedBanks: () -> Unit) {
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
+                    text = { Text("Hesap ekle") },
+                    onClick = {
+                        menuOpen = false
+                        onAddAccount()
+                    },
+                )
+                DropdownMenuItem(
                     text = { Text("PDF ekstreden içe aktar") },
                     onClick = {
                         menuOpen = false
@@ -117,6 +187,98 @@ private fun Header(onImportPdf: () -> Unit, onShowSupportedBanks: () -> Unit) {
                         onShowSupportedBanks()
                     },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyAccounts() {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(24.dp)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(colors.surfaceContainerHigh.copy(alpha = 0.72f))
+            .border(1.dp, AppTheme.extra.cardBorder, shape)
+            .padding(horizontal = 24.dp, vertical = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
+    ) {
+        Text("Henüz hesap yok", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Sağ üstteki + ile takip etmek istediğin hesabı ekle.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** Alttan açılan hesap ekleme paneli: desteklenen hesap türleri, eklenmiş olanlar pasif. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddAccountSheet(existing: Set<String>, onAdd: (String) -> Unit, onDismiss: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val colors = MaterialTheme.colorScheme
+
+    fun close(then: () -> Unit = {}) {
+        scope.launch { sheetState.hide() }.invokeOnCompletion {
+            then()
+            onDismiss()
+        }
+    }
+
+    if (sheetState.targetValue != SheetValue.Hidden) BlurBackdropWhileShown()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.surfaceContainerLow,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Hesap Ekle", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    "Eklemek istediğin hesap türünü seç.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                )
+            }
+            SupportedAccountTypes.forEach { id ->
+                val added = id in existing
+                val shape = RoundedCornerShape(20.dp)
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(shape)
+                        .background(colors.surfaceContainerHigh.copy(alpha = 0.72f))
+                        .border(1.dp, AppTheme.extra.cardBorder, shape)
+                        .clickable(enabled = !added, role = Role.Button) { close { onAdd(id) } }
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BankBadge(id)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(accountLabel(id), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text("PDF hesap cüzdanından içe aktarılır", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                    }
+                    if (added) {
+                        Text("Eklendi", style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
+                    } else {
+                        Icon(painterResource(Res.drawable.ic_add), contentDescription = null, tint = colors.primary)
+                    }
+                }
             }
         }
     }
@@ -143,6 +305,75 @@ private fun ImportDialog(state: ImportState, onDismiss: () -> Unit) {
             title = { Text(state.title) },
             text = { Text(state.message) },
         )
+    }
+}
+
+/** Kaydırınca açılan silme düğmesinin kart genişliğine oranı ve kartla arasındaki boşluk. */
+private const val DeleteButtonFraction = 0.2f
+private val DeleteButtonGap = 10.dp
+
+/**
+ * Sola kaydırınca kart, sağdaki silme düğmesini gösterecek kadar kayıp durur. Düğmeye basınca hesap
+ * silinir; geri kaydırınca kart yerine döner.
+ */
+@Composable
+private fun SwipeToDeleteAccount(
+    account: AccountSummary,
+    isOpen: Boolean,
+    onOpenChange: (Boolean) -> Unit,
+    onDelete: (String) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    var widthPx by remember { mutableStateOf(0) }
+    val buttonWidthPx = widthPx * DeleteButtonFraction
+    val openOffset = -(buttonWidthPx + with(density) { DeleteButtonGap.toPx() })
+    val offset = remember { Animatable(0f) }
+    val dragState = rememberDraggableState { delta ->
+        scope.launch { offset.snapTo((offset.value + delta).coerceIn(openOffset, 0f)) }
+    }
+    // Dışarıdan kapatıldığında (boşluğa dokunma, başka kartın açılması) kart yerine döner.
+    LaunchedEffect(isOpen) {
+        if (!isOpen && offset.value != 0f) offset.animateTo(0f)
+    }
+    val progress = if (widthPx == 0) 0f else (offset.value / openOffset).coerceIn(0f, 1f)
+
+    Box(Modifier.fillMaxWidth().height(IntrinsicSize.Min).onSizeChanged { widthPx = it.width }) {
+        Box(
+            Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .width(with(density) { buttonWidthPx.toDp() })
+                .graphicsLayer { alpha = progress }
+                .clip(RoundedCornerShape(20.dp))
+                .background(colors.errorContainer)
+                .clickable(enabled = progress == 1f, role = Role.Button, onClickLabel = "Hesabı sil") {
+                    onDelete(account.accountId)
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(painterResource(Res.drawable.ic_delete), contentDescription = null, tint = colors.onErrorContainer)
+                Text("Sil", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = colors.onErrorContainer)
+            }
+        }
+        Box(
+            Modifier
+                .offset { IntOffset(offset.value.roundToInt(), 0) }
+                .draggable(
+                    state = dragState,
+                    orientation = Orientation.Horizontal,
+                    onDragStopped = { velocity ->
+                        // Yarıdan fazla açıldıysa ya da hızla sola atıldıysa açık kalır.
+                        val open = velocity < -600f || (velocity <= 600f && offset.value < openOffset / 2)
+                        onOpenChange(open)
+                        offset.animateTo(if (open) openOffset else 0f)
+                    },
+                ),
+        ) {
+            AccountCard(account)
+        }
     }
 }
 

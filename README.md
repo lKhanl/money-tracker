@@ -40,3 +40,12 @@ Gereksinimler: JDK 21, Android SDK; iOS için Xcode.
 iOS için `iosApp/iosApp.xcodeproj`'u Xcode'da açıp çalıştır; Kotlin tarafı derleme sırasında
 Gradle ile otomatik derlenir. Örnek veri için şemada "Arguments Passed On Launch" alanına
 `-demoData` ekle. Gerçek cihaza kurmak için Signing bölümünden kendi geliştirici ekibini seç.
+
+## Lisans
+
+Copyright (C) 2026 lKhanl
+
+Bu proje [GNU Genel Kamu Lisansı v3.0](LICENSE) (GPL-3.0-or-later) ile lisanslanmıştır. Kodu değiştirip
+dağıtırsan, türev çalışmayı da aynı lisansla ve kaynak koduyla birlikte yayımlamalısın.
+
+Uygulamadaki banka logoları (QNB, GetirFinans) ilgili kurumların markasıdır ve bu lisansın kapsamında değildir.

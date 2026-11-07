@@ -6,6 +6,18 @@ aynı arayüzle çalışır (Kotlin Multiplatform + Compose Multiplatform). Veri
 Şu an desteklenen ekstre: **GetirFinans hesap cüzdanı (PDF)**. İşlemler kategorilere ayrılır,
 kendi hesapların arasındaki transferler ayrıca işaretlenir ve aylık özet çıkarılır.
 
+## Ekranlar
+
+- **Ana Sayfa**: seçili ayın toplam harcaması, kategori dağılımı ve son işlemler.
+- **İşlemler**: seçili ayın işlemleri güne göre gruplu. Sağ üstteki **+** ile PDF ekstre içe aktarılır.
+- **Hesaplar**: eklediğin hesapların kartları. **+** hesap ekleme panelini açar; karta dokununca o hesabın
+  seçili aydaki işlemleri alttan açılan panelde listelenir (panelde de PDF içe aktarma **+**'sı var).
+  Kartı sola kaydırınca silme düğmesi çıkar.
+- **Ayarlar**: tema, desteklenen bankalar ve sürüm bilgisi.
+
+PDF içe aktarma sonucu ekranın altında kısa süre görünen bir bildirimle (toast) gösterilir.
+Üstteki ay seçiciyle aylar arasında gezilir.
+
 ## Modüller
 
 | Modül | İçerik |

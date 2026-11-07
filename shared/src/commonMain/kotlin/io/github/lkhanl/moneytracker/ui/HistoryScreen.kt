@@ -1,7 +1,9 @@
 package io.github.lkhanl.moneytracker.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -16,6 +18,7 @@ import kotlinx.datetime.YearMonth
 fun HistoryScreen(
     state: TransactionsUiState,
     onSelectMonth: (YearMonth) -> Unit,
+    onImportPdf: () -> Unit,
     padding: PaddingValues,
 ) {
     val byDay = state.transactions.groupBy { it.occurredAt.date }
@@ -24,7 +27,12 @@ fun HistoryScreen(
         contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 8.dp + NavBarOverhang),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { MonthSelector(state, onSelectMonth) }
+        item {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                MonthSelector(state, onSelectMonth)
+                PdfImportButton(onImportPdf)
+            }
+        }
         if (byDay.isEmpty()) item { EmptyText("Bu ay işlem yok.") }
         byDay.forEach { (day, transactions) ->
             item(key = day.toString()) {

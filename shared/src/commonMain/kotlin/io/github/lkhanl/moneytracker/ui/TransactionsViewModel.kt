@@ -50,7 +50,7 @@ data class TransactionsUiState(
 sealed interface ImportState {
     data object Idle : ImportState
     data object Running : ImportState
-    data class Done(val title: String, val message: String) : ImportState
+    data class Done(val title: String, val message: String, val success: Boolean = true) : ImportState
 }
 
 class TransactionsViewModel(
@@ -93,7 +93,7 @@ class TransactionsViewModel(
             val outcome = runCatching { importer.import(pdf) }
             _importState.value = outcome.fold(
                 onSuccess = { it.toState() },
-                onFailure = { ImportState.Done("İçe aktarılamadı", "PDF okunamadı: ${it.message ?: it::class.simpleName}") },
+                onFailure = { ImportState.Done("İçe aktarılamadı", "PDF okunamadı: ${it.message ?: it::class.simpleName}", success = false) },
             )
         }
     }
@@ -122,8 +122,9 @@ class TransactionsViewModel(
         StatementImporter.Outcome.Unrecognized -> ImportState.Done(
             "Tanınmayan PDF",
             "Şimdilik yalnızca GetirFinans hesap cüzdanı PDF'i içe aktarılabiliyor.",
+            success = false,
         )
-        StatementImporter.Outcome.Empty -> ImportState.Done("İşlem bulunamadı", "Bu hesap cüzdanında hareket yok.")
+        StatementImporter.Outcome.Empty -> ImportState.Done("İşlem bulunamadı", "Bu hesap cüzdanında hareket yok.", success = false)
     }
 
     private fun accountsOf(month: YearMonth, accountIds: List<String>, all: List<Transaction>): List<AccountSummary> {

@@ -47,6 +47,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -86,22 +91,28 @@ import kotlinx.datetime.YearMonth
 fun AccountsScreen(
     state: TransactionsUiState,
     onSelectMonth: (YearMonth) -> Unit,
-    onShowSupportedBanks: () -> Unit,
-    importState: ImportState,
-    onImportStatement: (ByteArray) -> Unit,
+    onImportPdf: () -> Unit,
     onAddAccount: (String) -> Unit,
     onDeleteAccount: (String) -> Unit,
-    onDismissImportResult: () -> Unit,
     padding: PaddingValues,
 ) {
-    val pickPdf = rememberPdfPicker(onImportStatement)
-    ImportDialog(importState, onDismissImportResult)
     var addingAccount by rememberSaveable { mutableStateOf(false) }
     if (addingAccount) {
         AddAccountSheet(
             existing = state.accounts.mapTo(mutableSetOf()) { it.accountId },
             onAdd = onAddAccount,
             onDismiss = { addingAccount = false },
+        )
+    }
+    // Kartına dokunulan hesap; işlemleri alttan açılan panelde gösterilir.
+    var detailAccountId by rememberSaveable { mutableStateOf<String?>(null) }
+    detailAccountId?.let { id ->
+        AccountTransactionsSheet(
+            accountId = id,
+            month = state.month,
+            transactions = state.transactions.filter { it.accountId == id },
+            onImportPdf = onImportPdf,
+            onDismiss = { detailAccountId = null },
         )
     }
     // Silme düğmesi açık olan kart; aynı anda yalnızca biri açık olur.
@@ -123,7 +134,7 @@ fun AccountsScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item { MonthSelector(state, onSelectMonth) }
-        item { Header(onAddAccount = { addingAccount = true }, onImportPdf = pickPdf, onShowSupportedBanks) }
+        item { Header(onAddAccount = { addingAccount = true }) }
         if (state.accounts.isEmpty()) {
             item { EmptyAccounts() }
         }
@@ -135,13 +146,14 @@ fun AccountsScreen(
                     openAccount = if (open) account.accountId else openAccount.takeIf { it != account.accountId }
                 },
                 onDelete = onDeleteAccount,
+                onClick = { detailAccountId = account.accountId },
             )
         }
     }
 }
 
 @Composable
-private fun Header(onAddAccount: () -> Unit, onImportPdf: () -> Unit, onShowSupportedBanks: () -> Unit) {
+private fun Header(onAddAccount: () -> Unit) {
     val extra = AppTheme.extra
     Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -152,42 +164,15 @@ private fun Header(onAddAccount: () -> Unit, onImportPdf: () -> Unit, onShowSupp
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        // Hesap ekleme, PDF ekstreden işlem içe aktarma ya da desteklenen bankaların listesi.
-        var menuOpen by remember { mutableStateOf(false) }
-        Box {
-            Box(
-                Modifier
-                    .size(52.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(extra.navIndicator)
-                    .clickable(role = Role.Button, onClickLabel = "Ekleme seçeneklerini aç", onClick = { menuOpen = true }),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(painterResource(Res.drawable.ic_add), contentDescription = "Ekle", tint = extra.onNavIndicator)
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text("Hesap ekle") },
-                    onClick = {
-                        menuOpen = false
-                        onAddAccount()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("PDF ekstreden içe aktar") },
-                    onClick = {
-                        menuOpen = false
-                        onImportPdf()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Desteklenen bankalar") },
-                    onClick = {
-                        menuOpen = false
-                        onShowSupportedBanks()
-                    },
-                )
-            }
+        Box(
+            Modifier
+                .size(52.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(extra.navIndicator)
+                .clickable(role = Role.Button, onClickLabel = "Hesap ekle", onClick = onAddAccount),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(painterResource(Res.drawable.ic_add), contentDescription = "Hesap ekle", tint = extra.onNavIndicator)
         }
     }
 }
@@ -284,8 +269,103 @@ private fun AddAccountSheet(existing: Set<String>, onAdd: (String) -> Unit, onDi
     }
 }
 
+/**
+ * Listenin uçta artan kaydırması panele geçmesin: hızlı aşağı/yukarı kaydırmada panel
+ * kendiliğinden oynamasın. Panel yine tutamacından sürüklenerek kapatılabilir.
+ */
+private val ConsumeLeftoverScroll = object : NestedScrollConnection {
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset = available
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = available
+}
+
+/** PDF ekstreden işlem içe aktaran + düğmesi; işlemler sayfasında ve hesap panelinde kullanılır. */
 @Composable
-private fun ImportDialog(state: ImportState, onDismiss: () -> Unit) {
+internal fun PdfImportButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val extra = AppTheme.extra
+    Box(
+        modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(extra.navIndicator)
+            .clickable(role = Role.Button, onClickLabel = "PDF ekstreden içe aktar", onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(painterResource(Res.drawable.ic_add), contentDescription = "PDF ekstreden içe aktar", tint = extra.onNavIndicator)
+    }
+}
+
+/** Kartın hesabının seçili aydaki işlemleri: ekranın %85'i yüksekliğinde, alttan açılan panel. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AccountTransactionsSheet(
+    accountId: String,
+    month: YearMonth,
+    transactions: List<io.github.lkhanl.moneytracker.core.Transaction>,
+    onImportPdf: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val colors = MaterialTheme.colorScheme
+    val density = LocalDensity.current
+
+    // İçe aktarma sonucu (toast) ve dosya seçici ana ekranda çıkar; bu yüzden panel önce kapanır.
+    fun closeThenImport() {
+        scope.launch { sheetState.hide() }.invokeOnCompletion {
+            onDismiss()
+            onImportPdf()
+        }
+    }
+    // Panelin toplam yüksekliği ekranın %85'i olsun diye içerikten sürükleme tutamacının yüksekliği düşülür.
+    val sheetHeight = with(density) { (LocalWindowInfo.current.containerSize.height * 0.85f).toDp() } - 48.dp
+    val byDay = transactions.groupBy { it.occurredAt.date }
+
+    if (sheetState.targetValue != SheetValue.Hidden) BlurBackdropWhileShown()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.surfaceContainerLow,
+    ) {
+        LazyColumn(
+            Modifier.fillMaxWidth().height(sheetHeight).nestedScroll(remember { ConsumeLeftoverScroll }),
+            // iOS'taki lastik (bounce) efekti panelin sürüklenmesiyle çakışıp aşağı yukarı titretiyordu.
+            overscrollEffect = null,
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Row(
+                    Modifier.padding(bottom = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BankBadge(accountId)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(accountLabel(accountId), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text(
+                            "${month.formatMonth()} · ${transactions.size} işlem",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.onSurfaceVariant,
+                        )
+                    }
+                    PdfImportButton(::closeThenImport)
+                }
+            }
+            if (byDay.isEmpty()) item { EmptyText("Bu ay işlem yok.") }
+            byDay.forEach { (day, items) ->
+                item(key = day.toString()) {
+                    SectionTitle(day.formatDay(), Modifier.fillMaxWidth().padding(vertical = 8.dp))
+                }
+                items(items, key = { it.id }) { TransactionRow(it) { time -> time.formatTime() } }
+            }
+            item { Spacer(Modifier.navigationBarsPadding()) }
+        }
+    }
+}
+
+@Composable
+internal fun ImportDialog(state: ImportState, onDismiss: () -> Unit) {
     when (state) {
         ImportState.Idle -> Unit
         ImportState.Running -> AlertDialog(
@@ -299,12 +379,8 @@ private fun ImportDialog(state: ImportState, onDismiss: () -> Unit) {
                 }
             },
         )
-        is ImportState.Done -> AlertDialog(
-            onDismissRequest = onDismiss,
-            confirmButton = { TextButton(onClick = onDismiss) { Text("Tamam") } },
-            title = { Text(state.title) },
-            text = { Text(state.message) },
-        )
+        // Sonuç, MainScreen'de toast (snackbar) olarak gösterilir.
+        is ImportState.Done -> Unit
     }
 }
 
@@ -322,6 +398,7 @@ private fun SwipeToDeleteAccount(
     isOpen: Boolean,
     onOpenChange: (Boolean) -> Unit,
     onDelete: (String) -> Unit,
+    onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
@@ -372,7 +449,12 @@ private fun SwipeToDeleteAccount(
                     },
                 ),
         ) {
-            AccountCard(account)
+            Box(
+                Modifier.clickable(role = Role.Button, onClickLabel = "İşlemleri göster") {
+                    // Silme düğmesi açıkken dokunmak kartı kapatır; kapalıyken işlemleri açar.
+                    if (isOpen) onOpenChange(false) else onClick()
+                },
+            ) { AccountCard(account) }
         }
     }
 }
